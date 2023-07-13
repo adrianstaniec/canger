@@ -1,8 +1,8 @@
-# Sure, we can sort the file list so that directories appear first and in alphabetical order,
-# followed by files in alphabetical order.
+# To show directories in bold blue font, we can initialize a new color pair and use it when drawing directory names.
+# Please note that colors might not appear as expected in some terminal emulators or environments.
 
-import os
 import curses
+import os
 from pathlib import Path
 
 
@@ -19,9 +19,12 @@ class App:
         self.current_dir = Path(".").absolute()
 
     def _initialize_screen(self):
+        curses.curs_set(0)  # Hide the cursor
         curses.start_color()
-        curses.init_pair(1, curses.COLOR_WHITE, curses.COLOR_BLUE)
-        curses.curs_set(0)
+        curses.init_pair(1, curses.COLOR_WHITE, curses.COLOR_BLACK)  # for files
+        curses.init_pair(2, curses.COLOR_BLACK, curses.COLOR_WHITE)  # for selected file
+        curses.init_pair(3, curses.COLOR_BLUE, curses.COLOR_BLACK)  # for directories
+        curses.init_pair(4, curses.COLOR_BLACK, curses.COLOR_BLUE)  # for selected dir
 
     def refresh_screen(self):
         self.screen.clear()
@@ -52,21 +55,21 @@ class App:
                 self.process_key_press(files, key)
 
     def get_sorted_files(self):
-        dirs = sorted(
-            [d for d in os.listdir(self.current_dir) if (self.current_dir / d).is_dir()]
-        )
-        files = sorted(
-            [
-                f
-                for f in os.listdir(self.current_dir)
-                if (self.current_dir / f).is_file()
-            ]
-        )
+        dirs = []
+        files = []
+        for x in self.current_dir.iterdir():
+            if (self.current_dir / x).is_dir():
+                dirs.append(str(x.name))
+            else:
+                files.append(str(x.name))
+        dirs.sort()
+        files.sort()
         return dirs + files
 
     def _draw_file_list(self, files):
         for idx, filename in enumerate(files):
-            self._draw_left(filename, idx, idx == self.cursor)
+            is_dir = (self.current_dir / filename).is_dir()
+            self._draw_left(filename, idx, idx == self.cursor, is_dir)
 
     def _show_selected_file_or_folder_contents(self, files):
         item = files[self.cursor]
@@ -87,28 +90,38 @@ class App:
         return contents.split("\n")
 
     def _draw_right(self, contents, i):
+        contents = contents.replace("\t", "    ")
         if 0 <= i + 2 < self.screen_height:
             self.screen.addstr(
                 i + 2, self.col_width + 1, contents[: self.col_width - 2]
             )
 
-    def _draw_left(self, text, ypos, color=False):
-        if color:
-            self.screen.attron(curses.color_pair(1))
+    def _draw_left(self, text, ypos, is_selected=False, is_dir=False):
+        if is_selected and is_dir:
+            self.screen.attrset(curses.color_pair(4) | curses.A_BOLD)
+        elif is_dir:
+            self.screen.attrset(curses.color_pair(3) | curses.A_BOLD)
+        elif is_selected:
+            self.screen.attrset(curses.color_pair(2))
+        else:
+            self.screen.attrset(curses.color_pair(1))
+
         if ypos + 2 < self.screen_height:
             self.screen.addstr(ypos + 2, 0, text[: self.col_width - 1])
-        if color:
-            self.screen.attroff(curses.color_pair(1))
+        self.screen.attrset(curses.color_pair(1))
 
     def process_key_press(self, files, key):
-        if key in [curses.KEY_UP, ord("k")] and self.cursor > 0:
+        if key in [curses.KEY_UP, ord("k"), curses.KEY_A2] and self.cursor > 0:
             self.cursor -= 1
-        elif key in [curses.KEY_DOWN, ord("j")] and self.cursor < len(files) - 1:
+        elif (
+            key in [curses.KEY_DOWN, ord("j"), curses.KEY_C2]
+            and self.cursor < len(files) - 1
+        ):
             self.cursor += 1
-        elif key == ord("h"):
+        elif key in [curses.KEY_LEFT, curses.KEY_B1, ord("h")]:
             self.current_dir = self.current_dir.parent
             self.cursor = 0
-        elif key == ord("l"):
+        elif key in [curses.KEY_RIGHT, curses.KEY_B3, ord("l")]:
             self._try_enter_directory(files)
         elif key == ord("x"):
             self._try_remove_file(files)
