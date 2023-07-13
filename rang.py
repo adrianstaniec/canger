@@ -1,6 +1,3 @@
-# To show directories in bold blue font, we can initialize a new color pair and use it when drawing directory names.
-# Please note that colors might not appear as expected in some terminal emulators or environments.
-
 import curses
 import os
 from pathlib import Path
@@ -16,7 +13,12 @@ class App:
         self.screen = stdscr
         self._initialize_screen()
         self.cursor = 0
+        self.scroll_offset = 0
         self.current_dir = Path(".").absolute()
+
+    @property
+    def col_height(self):
+        return self.screen_height - 2
 
     def _initialize_screen(self):
         curses.curs_set(0)  # Hide the cursor
@@ -40,6 +42,12 @@ class App:
     def _draw_current_directory(self):
         self.screen.addstr(0, 0, str(self.current_dir)[: self.col_width])
 
+    def _draw_cursor_position(self, n_files):
+        text = f"{self.scroll_offset} [{self.cursor+1}/{n_files}]"
+        n_text = len(text) + 1
+        self.screen_height
+        self.screen.addstr(self.screen_height - 1, self.screen_width - n_text, text)
+
     def run(self):
         while True:
             self.refresh_screen()
@@ -47,6 +55,7 @@ class App:
 
             self._draw_file_list(files)
             self._show_selected_file_or_folder_contents(files)
+            self._draw_cursor_position(len(files))
 
             key = self.screen.getch()
             if key == ord("q"):
@@ -67,9 +76,11 @@ class App:
         return dirs + files
 
     def _draw_file_list(self, files):
-        for idx, filename in enumerate(files):
+        visible_files = files[self.scroll_offset : self.scroll_offset + self.col_height]
+        for idx, filename in enumerate(visible_files):
             is_dir = (self.current_dir / filename).is_dir()
-            self._draw_left(filename, idx, idx == self.cursor, is_dir)
+            is_under_cursor = idx + self.scroll_offset == self.cursor
+            self._draw_left(filename, idx, is_under_cursor, is_dir)
 
     def _show_selected_file_or_folder_contents(self, files):
         item = files[self.cursor]
@@ -91,7 +102,7 @@ class App:
 
     def _draw_right(self, contents, i):
         contents = contents.replace("\t", "    ")
-        if 0 <= i + 2 < self.screen_height:
+        if 0 <= i < self.col_height:
             self.screen.addstr(
                 i + 2, self.col_width + 1, contents[: self.col_width - 2]
             )
@@ -111,17 +122,21 @@ class App:
         self.screen.attrset(curses.color_pair(1))
 
     def process_key_press(self, files, key):
-        if key in [curses.KEY_UP, ord("k"), curses.KEY_A2] and self.cursor > 0:
-            self.cursor -= 1
-        elif (
-            key in [curses.KEY_DOWN, ord("j"), curses.KEY_C2]
-            and self.cursor < len(files) - 1
-        ):
-            self.cursor += 1
-        elif key in [curses.KEY_LEFT, curses.KEY_B1, ord("h")]:
+        if key in [curses.KEY_UP, ord("k"), curses.KEY_A2]:
+            if self.cursor > 0:
+                self.cursor -= 1
+                if self.cursor < self.scroll_offset:
+                    self.scroll_offset -= 1
+        elif key in [curses.KEY_DOWN, ord("j"), curses.KEY_C2]:
+            if self.cursor < len(files) - 1:
+                self.cursor += 1
+                if self.cursor - self.scroll_offset > self.col_height - 1:
+                    self.scroll_offset += 1
+        elif key in [curses.KEY_LEFT, ord("h"), curses.KEY_B1]:
             self.current_dir = self.current_dir.parent
             self.cursor = 0
-        elif key in [curses.KEY_RIGHT, curses.KEY_B3, ord("l")]:
+            self.scroll_offset = 0
+        elif key in [curses.KEY_RIGHT, ord("l"), curses.KEY_B3]:
             self._try_enter_directory(files)
         elif key == ord("x"):
             self._try_remove_file(files)
@@ -136,6 +151,7 @@ class App:
             if new_path.is_dir():
                 self.current_dir = new_path
                 self.cursor = 0
+                self.scroll_offset = 0
         except Exception as e:
             pass
 
